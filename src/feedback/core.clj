@@ -4,8 +4,8 @@
 
 (defn connect []
   (let [conn (m/make-connection "lipservice"
-                                :host "localhost"
-                                :port 27017)]
+                                     :host "localhost"
+                                     :port 27017)]
     (m/set-connection! conn)))
 
 (defn get-result [query id]
