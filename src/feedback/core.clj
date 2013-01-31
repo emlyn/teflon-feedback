@@ -1,11 +1,12 @@
 (ns feedback.core
   (:require
-   [somnium.congomongo :as m]))
+   [somnium.congomongo :as m]
+   [clojure.string :as s]))
 
 (defn connect []
   (let [conn (m/make-connection "lipservice"
-                                     :host "localhost"
-                                     :port 27017)]
+                                :host "localhost"
+                                :port 27017)]
     (m/set-connection! conn)))
 
 (defn get-result [query id]
@@ -13,7 +14,18 @@
                         (get-in query [:response :body :results]))]
     (if (= 1 (count results))
       (first results)
-      (throw Exception. (format "Not 1 result for id %s: %s" id results)))))
+      (println (format "Not 1 result for id %s: %s" id results)))))
+
+(def cols [:type
+           :task
+           :query
+           :document
+           :relevant
+           :user
+           :timestamp
+           :url
+           :title
+           :score])
 
 (defn convert [event query]
   (let [result (get-result query (:id event))]
@@ -22,24 +34,51 @@
      :query (get-in query [:params :text])
      :document (:id event)
      :relevant ({"rated-good" true
-                 "rated-bad" false} (:event event))
+                 "rated-bad" false
+                 "clicked" nil} (:event event))
      :user (:who query)
-     :timestamp (:when query)
+     :timestamp (.getTime (:when query))
      :url (:url result)
      :title (:title result)
      :score (:score result)}))
 
-(defn run []
-  (println "Total " (m/fetch-count :feedback))
-  (let [queries (m/fetch :feedback
-                         :where {:feedback {:$exists true}})]
-    (println "With feedback " (count queries))
-    (let [results (for [query queries
-                        event (:feedback query)]
-                    (convert event query))]
-      (println "Feedbacks " (count results))
-      results)))
+(defn load-data []
+  (m/fetch :feedback
+           :where {:feedback {:$exists true}}))
+
+(defn process-data [queries]
+  (for [query queries
+        event (:feedback query)]
+    (convert event query)))
+
+(defn escape [s]
+  (-> s
+      (str)
+      (s/replace #"[\t\n]" " ")
+      #_(#(if (re-find #"\"" %)
+          (format "\"%s\""
+                  (s/replace % #"\"" "\"\""))
+          %))))
+
+(defn save-data [results fname]
+  (with-open [f (clojure.java.io/writer fname)]
+    (.write f (str (s/join "\t"
+                           (map (comp (partial apply str) rest str)
+                                cols))
+                   "\n"))
+    (doseq [r results]
+      (.write f (str (s/join "\t"
+                             (map (comp escape r) cols))
+                     "\n")))))
 
 (defn -main []
   (connect)
-  (run))
+  (let [q (load-data)
+        r (process-data q)
+        s (filter #(not (nil? (:relevant %))) r)]
+    (println "Total " (m/fetch-count :feedback))
+    (println "With feedback " (count q))
+    (println "Feedbacks " (count r))
+    (println "Thumbs" (count s))
+    (save-data r "results.txt")
+    (save-data s "results2.txt")))
