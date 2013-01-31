@@ -81,39 +81,45 @@ def dopickle(fname, fcounts, fpickle):
 #dopickle('results.txt', '../idcounts.txt', 'data.dat')
 
 with open('data.dat') as pickler:
+   global data
    data = pickle.load(pickler)
 
-rankstrue = [int(d['rank']) for d in data if d.has_key('rank') and d['relevant'] == 'true']
-ranksfalse = [int(d['rank']) for d in data if d.has_key('rank') and d['relevant'] == 'false']
-ranksclick = [int(d['rank']) for d in data if d.has_key('rank') and d['relevant'] == '']
-#mu, sigma = 100, 15
-#x = mu + sigma * np.random.randn(10000)
-#print rankstrue
+def plot_rankshisto():
+    rankstrue = [int(d['rank']) for d in data
+                 if d.has_key('rank') and d['relevant'] == 'true']
+    ranksfalse = [int(d['rank']) for d in data
+                  if d.has_key('rank') and d['relevant'] == 'false']
+    ranksclick = [int(d['rank']) for d in data
+                  if d.has_key('rank') and d['relevant'] == '']
 
-fig = plt.figure()
-ax = fig.add_subplot(111)
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
 
-# the histogram of the data
-#n, bins, patches = ax.hist(x, 50, normed=1, facecolor='green', alpha=0.75)
+    ax.hist(rankstrue,  40, range=(0,1000), normed=1, alpha=0.5, facecolor='red')
+    ax.hist(ranksfalse, 40, range=(0,1000), normed=1, alpha=0.5, facecolor='green')
+    ax.hist(ranksclick, 40, range=(0,1000), normed=1, alpha=0.5, facecolor='blue')
 
-ax.hist(rankstrue,  40, range=(0,1000), normed=1, alpha=0.5, facecolor='red')
-ax.hist(ranksfalse, 40, range=(0,1000), normed=1, alpha=0.5, facecolor='green')
-ax.hist(ranksclick, 40, range=(0,1000), normed=1, alpha=0.5, facecolor='blue')
+    ax.set_xlabel('Rank')
+    ax.set_ylabel('Frequency')
+    #ax.set_title(r'$\mathrm{Histogram\ of\ IQ:}\ \mu=100,\ \sigma=15$')
+    #ax.set_xlim(40, 160)
+    ax.set_ylim(0, 0.01)
+    ax.grid(True)
 
-# hist uses np.histogram under the hood to create 'n' and 'bins'.
-# np.histogram returns the bin edges, so there will be 50 probability
-# density values in n, 51 bin edges in bins and 50 patches.  To get
-# everything lined up, we'll compute the bin centers
-#bincenters = 0.5*(bins[1:]+bins[:-1])
-# add a 'best fit' line for the normal PDF
-#y = mlab.normpdf( bincenters, mu, sigma)
-#l = ax.plot(bincenters, y, 'r--', linewidth=1)
+    plt.show()
 
-ax.set_xlabel('Rank')
-ax.set_ylabel('Frequency')
-#ax.set_title(r'$\mathrm{Histogram\ of\ IQ:}\ \mu=100,\ \sigma=15$')
-#ax.set_xlim(40, 160)
-ax.set_ylim(0, 0.01)
-ax.grid(True)
+def plot_scatter():
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    ax.plot([d['rank'] for d in data if d.has_key('rank') and d['relevant'] == 'true'],
+            [d['score'] for d in data if d.has_key('rank') and d['relevant'] == 'true'],
+            'o', mfc='red')
+    ax.plot([d['rank'] for d in data if d.has_key('rank') and d['relevant'] == 'false'],
+            [d['score'] for d in data if d.has_key('rank') and d['relevant'] == 'false'],
+            'o', mfc='green')
+    ax.plot([d['rank'] for d in data if d.has_key('rank') and d['relevant'] == ''],
+            [d['score'] for d in data if d.has_key('rank') and d['relevant'] == ''],
+            'o', mfc='blue')
+    plt.show()
 
-plt.show()
+plot_scatter()
