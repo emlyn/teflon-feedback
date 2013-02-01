@@ -4,9 +4,7 @@
    [clojure.string :as s]))
 
 (defn connect []
-  (let [conn (m/make-connection "lipservice"
-                                :host "localhost"
-                                :port 27017)]
+  (let [conn (m/make-connection "lipservice")]
     (m/set-connection! conn)))
 
 (defn get-result [query id]
@@ -14,20 +12,26 @@
                         (get-in query [:response :body :results]))]
     (if (= 1 (count results))
       (first results)
-      (println (format "Not 1 result for id %s: %s" id results)))))
+      (println (format "No unique result for id %s: %s" id results)))))
 
-(def cols [:type
-           :task
-           :query
-           :document
-           :relevant
-           :user
-           :timestamp
-           :url
-           :title
-           :score])
+(defn convert-query [query result pos]
+  {:query (get-in query [:params :text])
+   :document (:id result)
+   :user (:who query)
+   :timestamp (.getTime (:when query))
+   :url (:url result)
+   :title (:title result)
+   :score (:score result)
+   :pos pos})
 
-(defn convert [event query]
+(defn process-queries [queries]
+  (for [query queries
+        [result pos] (map vector
+                          (get-in query [:response :body :results])
+                          (iterate inc 0))]
+    (convert-query query result pos)))
+
+(defn convert-feedback [query event pos]
   (let [result (get-result query (:id event))]
     {:type "binary"
      :task "teflon-feedback"
@@ -40,16 +44,19 @@
      :timestamp (.getTime (:when query))
      :url (:url result)
      :title (:title result)
-     :score (:score result)}))
+     :score (:score result)
+     :pos pos}))
 
-(defn load-data []
+(defn load-feedback []
   (m/fetch :feedback
            :where {:feedback {:$exists true}}))
 
-(defn process-data [queries]
+(defn process-feedback [queries]
   (for [query queries
-        event (:feedback query)]
-    (convert event query)))
+        [event pos] (map vector
+                         (:feedback query)
+                         (iterate inc 0))]
+    (convert-feedback query event pos)))
 
 (defn escape [s]
   (-> s
@@ -60,25 +67,30 @@
                   (s/replace % #"\"" "\"\""))
           %))))
 
+(defn save-queries)
+
 (defn save-data [results fname]
   (with-open [f (clojure.java.io/writer fname)]
-    (.write f (str (s/join "\t"
-                           (map (comp (partial apply str) rest str)
-                                cols))
-                   "\n"))
-    (doseq [r results]
+    (let [cols (sort (keys (first results)))]
       (.write f (str (s/join "\t"
-                             (map (comp escape r) cols))
-                     "\n")))))
+                             (map (comp (partial apply str) rest str)
+                                  cols))
+                     "\n"))
+      (doseq [r results]
+        (.write f (str (s/join "\t"
+                               (map (comp escape r) cols))
+                       "\n"))))))
 
 (defn -main []
   (connect)
-  (let [q (load-data)
-        r (process-data q)
-        s (filter #(not (nil? (:relevant %))) r)]
-    (println "Total " (m/fetch-count :feedback))
+  (let [r (process-queries (m/fetch :feedback))]
+    (save-data r "data/teflon-queries.csv")
+    (println "Queries       " (count r)))
+  (let [q (load-feedback)
+        r (process-feedback q)]
+    (save-data r "data/teflon-feedback.csv")
     (println "With feedback " (count q))
     (println "Feedbacks " (count r))
-    (println "Thumbs" (count s))
-    (save-data r "results.txt")
-    (save-data s "results2.txt")))
+    (println "       up " (count (filter #(:relevant %) r)))
+    (println "     down " (count (filter #(false? (:relevant %)) r)))
+    (println "    click " (count (filter #(nil? (:relevant %)) r)))))

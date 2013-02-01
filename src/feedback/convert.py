@@ -1,7 +1,14 @@
+from gzip import GzipFile
 import cPickle as pickle
 
+def zopen(fname, *args, **kwargs):
+    if fname.endswith('.gz'):
+        return GzipFile(fname, *args, **kwargs)
+    else:
+        return open(fname, *args, **kwargs)
+
 def convert_titles(fin, fout):
-    with open(fin) as f, open(fout, 'w') as g:
+    with zopen(fin) as f, zopen(fout, 'w') as g:
         for l in f:
             if not l.startswith('INSERT INTO '):
                 continue
@@ -11,24 +18,22 @@ def convert_titles(fin, fout):
                 id,namespace,title = t.split(',')[:3]
                 if namespace == '0':
                     g.write(id + '\t' + title[1:-1] + '\n')
-convert_titles('../enwiki-20130102-page.sql', '../titles.txt')
 
 def convert_counts(fin, fout):
-    with open(fin) as f, open(fout, 'w') as g:
+    with zopen(fin) as f, zopen(fout, 'w') as g:
         for l in f:
             if not l.startswith('en '):
                 continue
             title,count = l.split(' ')[1:3]
             g.write(title + '\t' + count + '\n')
-convert_counts('../pagecounts-20130101-190000', '../pagecounts.txt')
 
 def combine(ftitles, fcounts, fout):
     counts = {}
-    with open(fcounts) as f:
+    with zopen(fcounts) as f:
         for l in f:
             title,count = l.rstrip('\n').split('\t')
             counts[title] = count
-    with open(ftitles) as f, open(fout, 'w') as g:
+    with zopen(ftitles) as f, zopen(fout, 'w') as g:
         for l in f:
             id,title = l.rstrip('\n').split('\t')
             try:
@@ -36,10 +41,9 @@ def combine(ftitles, fcounts, fout):
             except KeyError:
                 continue
             g.write(id + '\t' + count + '\t' + title + '\n')
-combine('../titles.txt', '../pagecounts.txt', '../idcounts.txt')
 
 def load_counts(fname):
-    with open(fname) as f:
+    with zopen(fname) as f:
         result = {}
         for l in f:
             id,count,title = l.rstrip('\n').split('\t')
@@ -48,18 +52,35 @@ def load_counts(fname):
 
 def load(fname, fcounts):
     counts = load_counts(fcounts)
-    with open(fname) as f:
+    with zopen(fname) as f:
         header = f.readline().rstrip('\n').split('\t')
         data = []
         for l in f:
             vals = l.rstrip('\n').split('\t')
             item = {k:v for k,v in zip(header, vals)}
+            try:
+                n = int(item['pos'])
+                item['pos'] = n
+            except KeyError:
+                pass
+            try:
+                n = int(item['timestamp'])
+                item['timestamp'] = n
+            except KeyError:
+                pass
+            try:
+                n = float(item['score'])
+                item['score'] = n
+            except KeyError:
+                pass
+            except ValueError:
+                item['score'] = None
             d = item['document']
             if d.startswith('wikipedia:'):
                 try:
                     id = int(d.split(':')[1])
                     count,title = counts[id]
-                    item['rank'] = count
+                    item['rank'] = int(count)
                     tt = item['title'].replace(' ', '_')
                     if tt != title:
                         print "***", item['title'], ':', tt, "!=", title
@@ -71,8 +92,29 @@ def load(fname, fcounts):
         print "Loaded", len(data), "of", ','.join(header)
         return data
 
-def dopickle(fname, fcounts, fpickle):
-    data = load(fname, fcounts)
-    with open(fpickle, 'w') as pickler:
+def dopickle(data, fpickle):
+    with zopen(fpickle, 'w') as pickler:
         pickle.dump(data, pickler)
-dopickle('../results.txt', '../idcounts.txt', '../data.dat')
+
+def main():
+    print 'Converting titles'
+    convert_titles('data/enwiki-20130102-page.sql.gz',
+                   'data/titles.csv.gz')
+    print 'Converting counts'
+    convert_counts('data/pagecounts-20130131-150000.gz',
+                   'data/pagecounts.csv.gz')
+    print 'Combining titles with counts'
+    combine('data/titles.csv.gz',
+            'data/pagecounts.csv.gz',
+            'data/idcounts.csv.gz')
+    print 'Combining with teflon feedback'
+    data = load('data/teflon-feedback.csv',
+                'data/idcounts.csv.gz')
+    dopickle(data, 'data/teflon-feedback.dat.gz')
+    print 'Combining with teflon queries'
+    data = load('data/teflon-queries.csv',
+                'data/idcounts.csv.gz')
+    dopickle(data, 'data/teflon-queries.dat.gz')
+
+if __name__ == '__main__':
+    main()
