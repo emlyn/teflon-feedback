@@ -1,5 +1,5 @@
 from gzip import GzipFile
-from glob import glob
+import argparse
 import cPickle as pickle
 
 def zopen(fname, *args, **kwargs):
@@ -9,6 +9,8 @@ def zopen(fname, *args, **kwargs):
         return open(fname, *args, **kwargs)
 
 def convert_titles(fin, fout):
+    """Converts enwiki-*-page.sql.gz files downloaded from
+    http://dumps.wikimedia.org/enwiki/"""
     with zopen(fin) as f, zopen(fout, 'w') as g:
         for l in f:
             if not l.startswith('INSERT INTO '):
@@ -21,8 +23,12 @@ def convert_titles(fin, fout):
                     g.write(id + '\t' + title[1:-1] + '\n')
 
 def convert_counts(fins, fout):
+    """Converts Wikipedia pagecount files downloaded from
+    http://dumps.wikimedia.org/other/pagecounts-raw/"""
+    if isinstance(fins, basestring):
+        fins = [fins]
     with zopen(fout, 'w') as g:
-        for fin in glob(fins):
+        for fin in fins:
             print "Converting", fin
             with zopen(fin) as f:
                 for l in f:
@@ -111,25 +117,35 @@ def dopickle(data, fpickle):
     with zopen(fpickle, 'w') as pickler:
         pickle.dump(data, pickler)
 
-def main():
-    #print 'Converting titles'
-    #convert_titles('data/enwiki-20130102-page.sql.gz',
-    #               'data/titles.csv.gz')
-    #print 'Converting counts'
-    #convert_counts('data/pagecounts-20130102-*.gz',
-    #               'data/pagecounts.csv.gz')
-    #print 'Combining titles with counts'
-    #combine('data/titles.csv.gz',
-    #        'data/pagecounts.csv.gz',
-    #        'data/idcounts.csv.gz')
-    print 'Combining with teflon feedback'
-    data = load('data/teflon-feedback.csv',
+def main(titles=None, counts=None, feedback=None, queries=None):
+    if titles != None:
+        print 'Converting titles (%s)' % titles
+        convert_titles(titles, 'data/titles.csv.gz')
+    if counts != None:
+        print 'Converting counts'
+        convert_counts(counts, 'data/pagecounts.csv.gz')
+    if titles != None or counts != None:
+        print 'Combining titles with counts'
+        combine('data/titles.csv.gz',
+                'data/pagecounts.csv.gz',
                 'data/idcounts.csv.gz')
-    dopickle(data, 'data/teflon-feedback.dat.gz')
-    print 'Combining with teflon queries'
-    data = load('data/teflon-queries.csv',
-                'data/idcounts.csv.gz')
-    dopickle(data, 'data/teflon-queries.dat.gz')
+    if feedback != None:
+        print 'Combining with teflon feedback (%s)' % feedback
+        data = load(feedback,
+                    'data/idcounts.csv.gz')
+        dopickle(data, 'data/teflon-feedback.dat.gz')
+    if queries != None:
+        print 'Combining with teflon queries (%s)' % queries
+        data = load(queries,
+                    'data/idcounts.csv.gz')
+        dopickle(data, 'data/teflon-queries.dat.gz')
 
 if __name__ == '__main__':
-    main()
+    parser = argparse.ArgumentParser(
+        description="Convert Wikipedia pageview dumps and combine with teflon feedback")
+    parser.add_argument('--titles',   '-t', dest='titles',   nargs='?', type=str, default=None)
+    parser.add_argument('--counts',   '-c', dest='counts',   nargs='+', type=str, default=None)
+    parser.add_argument('--feedback', '-f', dest='feedback', nargs='?', type=str, default=None)
+    parser.add_argument('--queries',  '-q', dest='queries',  nargs='?', type=str, default=None)
+    args = parser.parse_args()
+    main(**vars(args))
